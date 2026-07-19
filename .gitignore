@@ -1,0 +1,35 @@
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Airflow runtime artifacts
+airflow/logs/
+airflow/airflow.db
+airflow/airflow.cfg
+airflow/webserver_config.py
+
+# Model weights cache (downloaded at runtime, not source-controlled)
+models_cache/
+
+# Data (videos/frames/output are run artifacts, not source — keep .gitkeep placeholders only)
+data/input_videos/*
+data/input_images/*
+data/output/*
+data/_frames_tmp/*
+!data/input_videos/.gitkeep
+!data/input_images/.gitkeep
+!data/output/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store

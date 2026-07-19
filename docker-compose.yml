@@ -1,0 +1,106 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    PIPELINE_INPUT_DIR: /opt/airflow/data/input_videos
+    PIPELINE_OUTPUT_DIR: /opt/airflow/data/output
+    PIPELINE_FRAMES_TMP_DIR: /opt/airflow/data/_frames_tmp
+    INFERENCE_API_BASE_URL: http://instrument-api:8000
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/plugins:/opt/airflow/plugins
+    - airflow-logs:/opt/airflow/logs
+    - ./data:/opt/airflow/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "${AIRFLOW_ADMIN_USER:-admin}" \
+          --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+          --firstname Admin --lastname User \
+          --role Admin --email admin@example.com || true
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  instrument-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      DEVICE: ${DEVICE:-auto}
+      GROUNDING_DINO_MODEL_ID: ${GROUNDING_DINO_MODEL_ID:-IDEA-Research/grounding-dino-tiny}
+      SAM_MODEL_ID: ${SAM_MODEL_ID:-facebook/sam-vit-base}
+      BOX_THRESHOLD: ${BOX_THRESHOLD:-0.30}
+      TEXT_THRESHOLD: ${TEXT_THRESHOLD:-0.25}
+      SEGMENTATION_FORMAT: ${SEGMENTATION_FORMAT:-polygon}
+      MAX_BATCH_SIZE: ${MAX_BATCH_SIZE:-8}
+      HF_CACHE_DIR: /models_cache
+    ports:
+      - "8000:8000"
+    volumes:
+      - models-cache:/models_cache
+    # --- Uncomment to enable GPU access (requires nvidia-container-toolkit on the host) ---
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  postgres-db-volume:
+  airflow-logs:
+  models-cache:

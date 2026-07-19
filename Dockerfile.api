@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+#
+# FastAPI inference service: GroundingDINO (Stage 1) + SAM (Stage 2).
+#
+# Builds a CUDA-capable image by default. If you don't have a GPU available,
+# swap the base image for "python:3.11-slim" and set DEVICE=cpu in your .env —
+# everything else stays identical (PyTorch will fall back to CPU automatically
+# via app/models/pipeline.py:resolve_device).
+
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3-pip python3.11-dev \
+        libgl1 libglib2.0-0 \
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+WORKDIR /app
+
+COPY requirements/api.txt /app/requirements/api.txt
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r /app/requirements/api.txt
+
+COPY app /app/app
+
+# Where Hugging Face caches GroundingDINO/SAM weights — mount this as a
+# named volume in docker-compose.yml so weights persist across rebuilds
+# instead of re-downloading every time the image is rebuilt.
+ENV HF_CACHE_DIR=/models_cache
+RUN mkdir -p /models_cache
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
