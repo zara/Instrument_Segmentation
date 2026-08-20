@@ -1,4 +1,4 @@
-# Auto-Labeling Endoscopic Instruments — SAM-Based Segmentation Pipeline
+# Auto-Labeling Endoscopic Instruments, SAM-Based Segmentation Pipeline
 
 A two-stage **Instrument Prediction Pipeline** that automatically detects and
 segments surgical instruments in laparoscopic videos/images, and writes the
